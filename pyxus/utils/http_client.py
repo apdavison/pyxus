@@ -1,6 +1,7 @@
 import logging
 
 import curlify
+from requests import Request
 from requests.exceptions import HTTPError
 
 import requests
@@ -11,13 +12,14 @@ CURL_LOGGER = logging.getLogger("curl")
 
 class HttpClient(object):
 
-    headers = {"Content-type": "application/json"}
+    headers = {}
 
-    def __init__(self, endpoint, prefix, raw=False, token=None):
+    def __init__(self, endpoint, prefix, auth_client=None, raw=False):
         self.raw = raw
         self._prefix = prefix
-        if token is not None:
-            self.headers["Authorization"] ="Bearer {}".format(token)
+        self.auth_client = auth_client
+        self.req_session = requests.session()
+        self.req_session.headers = {"Content-type": "application/json"}
         self.api_root = '{}/{}'.format(endpoint, prefix)
 
     def _create_full_url(self, endpoint_url):
@@ -46,24 +48,34 @@ class HttpClient(object):
             LOGGER.debug('returned %s %s', response.status_code, response.content)
             return response.raise_for_status()
 
-    def _request(self, method_name, endpoint_url, data=None, headers=None):
+    def _request(self, method_name, endpoint_url, data=None, headers=None, can_retry=True):
         if endpoint_url.startswith('http'):
-           endpoint_url = self.transform_url_to_defined_endpoint(endpoint_url)
-        method = getattr(requests, method_name)
+            endpoint_url = self.transform_url_to_defined_endpoint(endpoint_url)
         full_url = self._create_full_url(endpoint_url)
         if type(data) is dict or type(data) is list:
             data = json.dumps(data)
+        original_headers = headers
         headers = headers or {}
-        headers.update(self.headers)
-        response = method(full_url, data, headers=headers, timeout=30)
+        if self.auth_client is not None:
+            headers.update(self.auth_client.get_headers())
+        req = Request(method_name, full_url, data=data, headers=headers)
+        prepped_request = self.req_session.prepare_request(req)
+        response = self.req_session.send(prepped_request, timeout=30)
         CURL_LOGGER.info(curlify.to_curl(response.request))
         try:
-            if response.status_code>=500:
+            if response.status_code >= 500:
                 error = HTTPError()
                 error.response = response
                 raise error
-            elif response.status_code>=400:
+            elif response.status_code > 401:
                 LOGGER.error("ERROR {} {}: {} {}".format(method_name.upper(),response.status_code,  full_url, response))
+            elif response.status_code == 401 and can_retry:
+                LOGGER.error(
+                    "ERROR - Refreshing token {} {}: {} {}".format(method_name.upper(), response.status_code, full_url,
+                                                response))
+                if self.auth_client is not None:
+                    self.auth_client.refresh_token()
+                    self._request(method_name, endpoint_url, data, original_headers, can_retry=False)
             else:
                 LOGGER.debug("SUCCESS {} {}: {} {}".format(method_name.upper(), response.status_code, full_url, json.dumps(data)))
             return self._handle_response(response)
@@ -97,8 +109,4 @@ class HttpClient(object):
         return self._request('patch', *args, **kwargs)
 
     def delete(self, endpoint_url):
-        full_url = self._create_full_url(endpoint_url)
-        headers = {}
-        headers.update(self.headers)
-        response = requests.delete(full_url, headers=headers)
-        return self._handle_response(response)
+        return self._request('delete', endpoint_url)
