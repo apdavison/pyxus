@@ -135,7 +135,7 @@ class Organization(Entity):
     def create_new(cls, name, description):
         json = {
             "@context": {
-                "schema2": "http://schema.org/"
+                "schema": "http://schema.org/"
             },
             "schema:name": name,
             "schema:description": description
