@@ -270,8 +270,10 @@ class InstanceRepository(Repository):
         data = self._read(identifier)
         return Instance(identifier, data, self.path) if data is not None else None
 
-    def list_by_schema(self, organization, domain, schema, version, resolved=False, full_text_query=None, filter_query=None, from_index=None, size=None, deprecated=False):
-        return self.list(subpath="/{}/{}/{}/{}".format(organization, domain, schema, version), resolved=resolved, full_text_query=full_text_query, filter_query=filter_query, from_index=from_index, deprecated=deprecated)
+    def list_by_schema(self, organization, domain, schema, version, resolved=False, full_text_query=None, filter_query=None, from_index=None, size=None, deprecated=False, context=None):
+        return self.list(subpath="/{}/{}/{}/{}".format(organization, domain, schema, version),
+                         resolved=resolved, full_text_query=full_text_query, filter_query=filter_query,
+                         from_index=from_index, size=size, deprecated=deprecated, context=context)
 
 
 class ContextRepository(Repository):
